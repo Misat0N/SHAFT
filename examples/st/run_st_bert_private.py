@@ -188,8 +188,9 @@ def build_hf_torch_model(
 
 
 def build_crypten_model(model: nn.Module, dummy_ids, dummy_mask):
-    crypten_model = ct.nn.from_pytorch(model, (dummy_ids, dummy_mask))
-    crypten_model.encrypt().eval()
+    device = dummy_ids.device
+    crypten_model = ct.nn.from_pytorch(model, (dummy_ids, dummy_mask)).encrypt().to(device)
+    crypten_model.eval()
     return crypten_model
 
 
