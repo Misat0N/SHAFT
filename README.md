@@ -15,7 +15,7 @@ pip install wheel==0.40.0
 ```
 ### 2. Install SHAFT
 ```bash
-git clone https://github.com/andeskyl/SHAFT
+git clone [https://github.com/andeskyl/SHAFT](https://github.com/Misat0N/SHAFT.git)
 cd SHAFT
 pip install .
 ```
