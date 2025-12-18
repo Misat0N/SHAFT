@@ -27,6 +27,21 @@ def parse_args():
         help="HF model name or local path to start from",
     )
     parser.add_argument(
+        "--from-scratch",
+        action="store_true",
+        help="Initialize a fresh BertForSequenceClassification from config (no HuggingFace download needed).",
+    )
+    parser.add_argument(
+        "--local-files-only",
+        action="store_true",
+        help="Do not try to download from HuggingFace Hub (requires --base-model to be cached or a local directory).",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Optional HuggingFace cache directory for from_pretrained()",
+    )
+    parser.add_argument(
         "--num-labels",
         type=int,
         default=2,
@@ -55,16 +70,33 @@ def main():
     args = parse_args()
 
     try:
-        from transformers import BertForSequenceClassification
+        from transformers import BertConfig, BertForSequenceClassification
     except ImportError as exc:
         raise SystemExit(
             "Missing dependency: transformers. Install it in your env, e.g. "
             "`pip install transformers`."
         ) from exc
 
-    model = BertForSequenceClassification.from_pretrained(
-        args.base_model, num_labels=args.num_labels
-    )
+    if args.from_scratch:
+        config = BertConfig(num_labels=args.num_labels)
+        model = BertForSequenceClassification(config)
+    else:
+        try:
+            model = BertForSequenceClassification.from_pretrained(
+                args.base_model,
+                num_labels=args.num_labels,
+                local_files_only=args.local_files_only,
+                cache_dir=args.cache_dir,
+            )
+        except OSError as exc:
+            raise SystemExit(
+                "Failed to load base model.\n"
+                "- If you have no internet, either:\n"
+                "  (a) pass a local directory to --base-model (must contain config.json + model weights), or\n"
+                "  (b) use --from-scratch to create random weights, or\n"
+                "  (c) pre-download the model on another machine and copy the cache.\n"
+                f"\nOriginal error: {exc}"
+            ) from exc
     state_dict = model.state_dict()
 
     key_path = os.path.join(args.key_dir, "key_m.pt")
@@ -112,4 +144,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
