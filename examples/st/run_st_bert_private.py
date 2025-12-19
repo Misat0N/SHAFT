@@ -216,8 +216,8 @@ def demo_run(crypten_model, batch_size, seq_len, vocab_size, device, rank, encry
             input_ids = torch.empty((batch_size, seq_len), device="cpu", dtype=torch.long)
             attn_mask = torch.empty((batch_size, seq_len), device="cpu", dtype=torch.float32)
 
-        comm.get().broadcast(input_ids, src=0)
-        comm.get().broadcast(attn_mask, src=0)
+        comm.get().broadcast(input_ids, 0)
+        comm.get().broadcast(attn_mask, 0)
         input_ids = input_ids.to(device)
         attn_mask = attn_mask.to(device)
         logits_enc = crypten_model(input_ids, attn_mask)
