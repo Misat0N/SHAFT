@@ -195,19 +195,36 @@ def build_crypten_model(model: nn.Module, dummy_ids, dummy_mask):
 
 
 def demo_run(crypten_model, batch_size, seq_len, vocab_size, device, rank, encrypt_inputs: bool):
-    input_ids = torch.randint(
-        0, vocab_size, (batch_size, seq_len), device=device, dtype=torch.long
-    )
-    attn_mask = torch.ones_like(input_ids, dtype=torch.float32)
-
     if encrypt_inputs:
+        input_ids = torch.randint(
+            0, vocab_size, (batch_size, seq_len), device=device, dtype=torch.long
+        )
+        attn_mask = torch.ones_like(input_ids, dtype=torch.float32)
+
+        # Secret-share inputs (src=0 by default): only rank0 provides the plaintext.
         x_ids = ct.cryptensor(input_ids).to(device)
         x_mask = ct.cryptensor(attn_mask).to(device)
         logits_enc = crypten_model(x_ids, x_mask)
     else:
+        # Public inputs must be identical across all ranks.
+        if rank == 0:
+            input_ids = torch.randint(
+                0, vocab_size, (batch_size, seq_len), device="cpu", dtype=torch.long
+            )
+            attn_mask = torch.ones_like(input_ids, dtype=torch.float32)
+        else:
+            input_ids = torch.empty((batch_size, seq_len), device="cpu", dtype=torch.long)
+            attn_mask = torch.empty((batch_size, seq_len), device="cpu", dtype=torch.float32)
+
+        comm.get().broadcast(input_ids, src=0)
+        comm.get().broadcast(attn_mask, src=0)
+        input_ids = input_ids.to(device)
+        attn_mask = attn_mask.to(device)
         logits_enc = crypten_model(input_ids, attn_mask)
+
+    # Reveal is a collective: all ranks must participate.
+    logits = logits_enc.get_plain_text(dst=0)
     if rank == 0:
-        logits = logits_enc.get_plain_text()
         print(f"[demo] logits shape: {tuple(logits.shape)}")
 
 
@@ -221,7 +238,10 @@ def run_worker(args):
             device = "cuda"
     else:
         device = "cpu"
-    print(f"[info] rank={rank}, device={device}, batch_size={args.batch_size}, seq_len={args.seq_len}")
+    print(
+        f"[info] rank={rank}, device={device}, batch_size={args.batch_size}, "
+        f"seq_len={args.seq_len}, encrypt_inputs={bool(args.encrypt_inputs)}"
+    )
 
     weights_path = args.weights
     if not os.path.exists(weights_path):
