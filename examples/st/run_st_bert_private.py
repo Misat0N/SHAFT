@@ -194,16 +194,18 @@ def build_crypten_model(model: nn.Module, dummy_ids, dummy_mask):
     return crypten_model
 
 
-def demo_run(crypten_model, batch_size, seq_len, vocab_size, device, rank):
+def demo_run(crypten_model, batch_size, seq_len, vocab_size, device, rank, encrypt_inputs: bool):
     input_ids = torch.randint(
         0, vocab_size, (batch_size, seq_len), device=device, dtype=torch.long
     )
     attn_mask = torch.ones_like(input_ids, dtype=torch.float32)
 
-    x_ids = ct.cryptensor(input_ids).to(device)
-    x_mask = ct.cryptensor(attn_mask).to(device)
-
-    logits_enc = crypten_model(x_ids, x_mask)
+    if encrypt_inputs:
+        x_ids = ct.cryptensor(input_ids).to(device)
+        x_mask = ct.cryptensor(attn_mask).to(device)
+        logits_enc = crypten_model(x_ids, x_mask)
+    else:
+        logits_enc = crypten_model(input_ids, attn_mask)
     if rank == 0:
         logits = logits_enc.get_plain_text()
         print(f"[demo] logits shape: {tuple(logits.shape)}")
@@ -211,11 +213,15 @@ def demo_run(crypten_model, batch_size, seq_len, vocab_size, device, rank):
 
 def run_worker(args):
     rank = comm.get().get_rank()
-    device = "cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu"
-    if rank == 0:
-        print(
-            f"[info] device={device}, batch_size={args.batch_size}, seq_len={args.seq_len}"
-        )
+    if args.device == "cuda" and torch.cuda.is_available():
+        if torch.cuda.device_count() > 1:
+            torch.cuda.set_device(rank % torch.cuda.device_count())
+            device = f"cuda:{torch.cuda.current_device()}"
+        else:
+            device = "cuda"
+    else:
+        device = "cpu"
+    print(f"[info] rank={rank}, device={device}, batch_size={args.batch_size}, seq_len={args.seq_len}")
 
     weights_path = args.weights
     if not os.path.exists(weights_path):
@@ -271,6 +277,7 @@ def run_worker(args):
             vocab_size=vocab_size,
             device=device,
             rank=rank,
+            encrypt_inputs=args.encrypt_inputs,
         )
 
 
@@ -319,6 +326,14 @@ def parse_args():
     parser.add_argument("--seq-len", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
+    parser.add_argument(
+        "--encrypt-inputs",
+        action="store_true",
+        help=(
+            "Encrypt input_ids / attention_mask (private tokens). "
+            "Warning: this triggers a very expensive MPC embedding lookup."
+        ),
+    )
     parser.add_argument(
         "--save-crypten",
         default=None,

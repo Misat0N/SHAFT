@@ -3306,8 +3306,16 @@ class Embedding(Module):
             output = indices.matmul(weight)
             return output
         indices = indices.long()
-        result = weight[indices]
-        return result
+        if crypten.is_encrypted_tensor(weight):
+            # Public indices + secret weight: each party can index its own share locally.
+            share = weight.share[indices]
+            precision_bits = getattr(weight.encoder, "_precision_bits", None)
+            result = crypten.mpc.MPCTensor.from_shares(
+                share, precision=precision_bits, ptype=getattr(weight, "ptype", crypten.mpc.arithmetic)
+            )
+            result.encoder = weight.encoder
+            return result
+        return weight[indices]
 
     @staticmethod
     def from_onnx(attributes=None):
